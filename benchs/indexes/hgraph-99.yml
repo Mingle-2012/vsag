@@ -9,7 +9,7 @@ global:
     num_threads_building: 16
     num_threads_searching: 16
 
-99/DEEP1B:
+HGRAPH/DEEP1B/99:
     datapath: "/tmp/data/deep-image-96-angular.hdf5"
     type: "build,search" # build, search
     index_name: "hgraph"
@@ -21,7 +21,7 @@ global:
     range: 0.5
     delete_index_after_search: false
 
-99/GIST:
+HGRAPH/GIST/99:
     datapath: "/tmp/data/gist-960-euclidean.hdf5"
     type: "build,search" # build, search
     index_name: "hgraph"
@@ -33,7 +33,7 @@ global:
     range: 0.5
     delete_index_after_search: false
 
-99/SIFT:
+HGRAPH/SIFT/99:
     datapath: "/tmp/data/sift-128-euclidean.hdf5"
     type: "build,search" # build, search
     index_name: "hgraph"
@@ -45,7 +45,7 @@ global:
     range: 0.5
     delete_index_after_search: false
 
-99/GloVe-100:
+HGRAPH/GloVe-100/99:
     datapath: "/tmp/data/glove-100-angular.hdf5"
     type: "build,search" # build, search
     index_name: "hgraph"
@@ -57,7 +57,7 @@ global:
     range: 0.5
     delete_index_after_search: false
 
-99/NYTimes:
+HGRAPH/NYTimes/99:
     datapath: "/tmp/data/nytimes-256-angular.hdf5"
     type: "build,search" # build, search
     index_name: "hgraph"
@@ -69,7 +69,7 @@ global:
     range: 0.5
     delete_index_after_search: false
 
-99/OPENAI:
+HGRAPH/OPENAI/99:
     datapath: "/tmp/data/openai-1536-500k-angular.hdf5"
     type: "build,search" # build, search
     index_name: "hgraph"
@@ -80,18 +80,18 @@ global:
     search_mode: "knn"
     delete_index_after_search: false
 
-99/COHERE:
+HGRAPH/COHERE/99:
     datapath: "/tmp/data/cohere-768-1m-angular.hdf5"
     type: "build,search" # build, search
     index_name: "hgraph"
-    create_params: '{"dim":768,"dtype":"float32","metric_type":"cosine","index_param":{"base_quantization_type":"sq8_uniform","max_degree":64,"ef_construction":400, "precise_quantization_type":"fp32", "use_reorder":true}}'
-    search_params: '{"hgraph":{"ef_search":185}}'
+    create_params: '{"dim":768,"dtype":"float32","metric_type":"cosine","index_param":{"base_quantization_type":"rabitq","max_degree":64,"ef_construction":400, "rabitq_use_fht": true,"precise_quantization_type":"fp32", "use_reorder":true}}'
+    search_params: '{"hgraph":{"ef_search":150}}'
     index_path: "/tmp/cohere-768-1m-angular/index/hgraph_index"
     topk: 10
     search_mode: "knn"
     delete_index_after_search: false
 
-99/INTERNET:
+HGRAPH/INTERNET/99:
     datapath: "/tmp/data/wholenet-sparse-1m-ip.hdf5"
     type: "build,search" # build, search
     index_name: "sindi"

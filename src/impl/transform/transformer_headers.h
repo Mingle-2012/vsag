@@ -19,3 +19,4 @@
 #include "pca_transformer.h"
 #include "random_orthogonal_transformer.h"
 #include "vector_transformer.h"
+#include "vector_transformer_parameter.h"
