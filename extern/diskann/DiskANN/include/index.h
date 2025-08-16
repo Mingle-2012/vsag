@@ -170,6 +170,10 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
     // if tag not found.
     DISKANN_DLLEXPORT void lazy_delete(const std::vector<TagT> &tags, std::vector<TagT> &failed_tags);
 
+    // Delete point from the index and graph immediately.
+    // Returns -1 if tag not found, 0 if OK.
+    DISKANN_DLLEXPORT int ip_delete(const TagT &tag);
+
     // Call after a series of lazy deletions
     // Returns number of live points left after consolidation
     // If _conc_consolidates is set in the ctor, then this call can be invoked
@@ -225,6 +229,8 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
     virtual int _lazy_delete(const TagType &tag) override;
 
     virtual void _lazy_delete(TagVector &tags, TagVector &failed_tags) override;
+
+    virtual int _ip_delete(const TagType &tag) override;
 
     virtual void _get_active_tags(TagRobinSet &active_tags) override;
 

@@ -71,6 +71,11 @@ void AbstractIndex::lazy_delete(const std::vector<tag_type> &tags, std::vector<t
     this->_lazy_delete(any_tags, any_failed_tags);
 }
 
+template<typename tag_type> int AbstractIndex::ip_delete(const tag_type &tag) {
+    auto any_tag = std::any(tag);
+    return this->_ip_delete(any_tag);
+}
+
 template <typename tag_type> void AbstractIndex::get_active_tags(tsl::robin_set<tag_type> &active_tags)
 {
     auto any_active_tags = TagRobinSet(active_tags);
@@ -252,6 +257,11 @@ template DISKANN_DLLEXPORT void AbstractIndex::lazy_delete<int64_t>(const std::v
                                                                     std::vector<int64_t> &failed_tags);
 template DISKANN_DLLEXPORT void AbstractIndex::lazy_delete<uint64_t>(const std::vector<uint64_t> &tags,
                                                                      std::vector<uint64_t> &failed_tags);
+
+template DISKANN_DLLEXPORT int AbstractIndex::ip_delete<int32_t>(const int32_t &tag);
+template DISKANN_DLLEXPORT int AbstractIndex::ip_delete<uint32_t>(const uint32_t &tag);
+template DISKANN_DLLEXPORT int AbstractIndex::ip_delete<int64_t>(const int64_t &tag);
+template DISKANN_DLLEXPORT int AbstractIndex::ip_delete<uint64_t>(const uint64_t &tag);
 
 template DISKANN_DLLEXPORT void AbstractIndex::get_active_tags<int32_t>(tsl::robin_set<int32_t> &active_tags);
 template DISKANN_DLLEXPORT void AbstractIndex::get_active_tags<uint32_t>(tsl::robin_set<uint32_t> &active_tags);

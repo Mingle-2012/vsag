@@ -3495,6 +3495,17 @@ void Index<T, TagT, LabelT>::_lazy_delete(TagVector &tags, TagVector &failed_tag
     }
 }
 
+template <typename T, typename TagT, typename LabelT> int Index<T, TagT, LabelT>::_ip_delete(const TagType &tag) {
+    try
+    {
+        return ip_delete(std::any_cast<const TagT>(tag));
+    }
+    catch (const std::bad_any_cast &e)
+    {
+        throw ANNException(std::string("Error: ") + e.what(), -1);
+    }
+}
+
 template <typename T, typename TagT, typename LabelT> int Index<T, TagT, LabelT>::lazy_delete(const TagT &tag)
 {
     std::shared_lock<std::shared_timed_mutex> ul(_update_lock);
@@ -3543,6 +3554,17 @@ void Index<T, TagT, LabelT>::lazy_delete(const std::vector<TagT> &tags, std::vec
             _tag_to_location.erase(tag);
         }
     }
+}
+
+template <typename T, typename TagT, typename LabelT> int Index<T, TagT, LabelT>::ip_delete(const TagT &tag)
+{
+    std::shared_lock<std::shared_timed_mutex> ul(_update_lock);
+    std::unique_lock<std::shared_timed_mutex> tl(_tag_lock);
+    std::unique_lock<std::shared_timed_mutex> dl(_delete_lock);
+
+
+
+    return 0;
 }
 
 template <typename T, typename TagT, typename LabelT> bool Index<T, TagT, LabelT>::is_index_saved()

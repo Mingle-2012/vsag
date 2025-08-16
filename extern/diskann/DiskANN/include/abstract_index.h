@@ -86,6 +86,8 @@ class AbstractIndex
     template <typename tag_type>
     void lazy_delete(const std::vector<tag_type> &tags, std::vector<tag_type> &failed_tags);
 
+    template <typename tag_type> int ip_delete(const tag_type &tag);
+
     template <typename tag_type> void get_active_tags(tsl::robin_set<tag_type> &active_tags);
 
     template <typename data_type> void set_start_points_at_random(data_type radius, uint32_t random_seed = 0);
@@ -108,6 +110,7 @@ class AbstractIndex
     virtual int _insert_point(const DataType &data_point, const TagType tag) = 0;
     virtual int _lazy_delete(const TagType &tag) = 0;
     virtual void _lazy_delete(TagVector &tags, TagVector &failed_tags) = 0;
+    virtual int _ip_delete(const TagType &tag) = 0;
     virtual void _get_active_tags(TagRobinSet &active_tags) = 0;
     virtual void _set_start_points_at_random(DataType radius, uint32_t random_seed = 0) = 0;
     virtual int _get_vector_by_tag(TagType &tag, DataType &vec) = 0;
