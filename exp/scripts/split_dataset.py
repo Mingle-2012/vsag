@@ -1,13 +1,10 @@
-import os
 from vecs_util import *
 import numpy as np
 
+base_path = "/root/mount/dataset/sift/learn.fvecs"
+query_path = "/root/mount/dataset/sift/query.fvecs"
 
-base_path = "/root/datasets/sift/1m/sift_base.fvecs"
-query_path = "/root/datasets/sift/1m/sift_query.fvecs"
-gt_path = "/root/datasets/sift/1m/sift_groundtruth.ivecs"
-
-output_dir = "/root/datasets/sift/1m/split"
+output_dir = "/root/mount/dataset/sift/split"
 os.makedirs(output_dir, exist_ok=True)
 
 if __name__ == "__main__":

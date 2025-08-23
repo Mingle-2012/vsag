@@ -11,12 +11,19 @@ def ivecs_read(fname):
 def fvecs_read(fname):
     with open(fname, 'rb') as f:
         vectors = []
-        while True:
-            len_prefix = numpy.fromfile(f, dtype=numpy.int32, count=1)
-            if len_prefix.size == 0:
-                break
-            d = len_prefix[0]
-            vector = numpy.fromfile(f, dtype=numpy.float32, count=d)
+        dim = numpy.fromfile(f, dtype=numpy.int32, count=1)
+        if dim.size == 0:
+            return numpy.array(vectors)
+        line_size = 4 + dim[0] * 4
+        print("Detected dimension: ", dim[0])
+        N = os.fstat(f.fileno()).st_size // line_size
+        print("Detected number of vectors: ", N)
+        f.seek(0)
+        i = 0
+        while i < N:
+            i += 1
+            numpy.fromfile(f, dtype=numpy.int32, count=1)
+            vector = numpy.fromfile(f, dtype=numpy.float32, count=dim[0])
             vectors.append(vector)
     return numpy.array(vectors)
 

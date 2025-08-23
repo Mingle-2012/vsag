@@ -9,4 +9,10 @@ foreach(SOURCE_FILE ${ALL_CPP_FILES})
             vsag
             simd
     )
+    target_include_directories (${EXECUTABLE_NAME} PRIVATE
+            ${CMAKE_CURRENT_BINARY_DIR}/spdlog/install/include
+            ${HDF5_INCLUDE_DIRS})
+
+    add_dependencies (${EXECUTABLE_NAME} spdlog)
+
 endforeach()
