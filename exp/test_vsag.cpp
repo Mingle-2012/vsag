@@ -1,67 +1,15 @@
+#include <cmath>
 #include <iostream>
 
+#include "util.hpp"
 #include "index/hnsw.h"
-#include "index/hnsw_zparameters.h"
-#include "index/index_common_param.h"
 #include "vsag/vsag.h"
-#include "spdlog/spdlog.h"
 
 using namespace vsag;
-
-template <typename T>
-std::tuple<std::vector<T>, int64_t, int64_t>
-read_vecs(const std::string& filename) {
-    std::ifstream is(filename, std::ios::binary);
-    if (!is.good()) {
-        std::cerr << "Error opening file " << filename << std::endl;
-        return { {}, 0, 0 };
-    }
-    std::vector<T> data;
-    is.seekg(0, std::ios::end);
-    size_t size = is.tellg();
-    is.seekg(0, std::ios::beg);
-    unsigned dim;
-    is.read(reinterpret_cast<char*>(&dim), sizeof(unsigned int));
-    unsigned line = sizeof(T) * dim + sizeof(unsigned int);
-    unsigned N = size / line;
-    data.resize(N * dim);
-    for (unsigned i = 0; i < N; ++i) {
-        is.seekg(sizeof(unsigned int), std::ios::cur);
-        is.read(reinterpret_cast<char*>(data.data() + i * dim), sizeof(T) * dim);
-    }
-    is.close();
-    std::cout << "Read " << N << " vectors of dimension " << dim << " from file " << filename << std::endl;
-    return { data, dim, N };
-}
-
-HnswParameters
-parse_hnsw_params(IndexCommonParam index_common_param) {
-    auto build_parameter_json = R"(
-        {
-            "max_degree": 32,
-            "ef_construction": 100
-        }
-    )";
-    nlohmann::json parsed_params = nlohmann::json::parse(build_parameter_json);
-    return HnswParameters::FromJson(parsed_params, index_common_param);
-}
 
 void
 test_hnsw(const std::string &base, const std::string &query, const std::string &gt) {
     auto [vectors, dim, num_vectors] = read_vecs<float>(base);
-    auto allocator = SafeAllocator::FactoryDefaultAllocator();
-
-    IndexCommonParam common_param;
-    common_param.dim_ = dim;
-    common_param.data_type_ = DataTypes::DATA_TYPE_FLOAT;
-    common_param.metric_ = MetricType::METRIC_TYPE_L2SQR;
-    common_param.allocator_ = allocator;
-
-    auto hnsw_obj = parse_hnsw_params(common_param);
-    hnsw_obj.max_degree = 32;
-    hnsw_obj.ef_construction = 100;
-    auto index = std::make_shared<HNSW>(hnsw_obj, common_param);
-    index->InitMemorySpace();
 
     std::vector<int64_t> ids(num_vectors);
     std::iota(ids.begin(), ids.end(), 0);
@@ -71,45 +19,64 @@ test_hnsw(const std::string &base, const std::string &query, const std::string &
         ->NumElements(num_vectors)
         ->Ids(ids.data())
         ->Float32Vectors(vectors.data())
-        ->Owner(true);
+        ->Owner(false);
 
-    index->Build(dataset);
+    auto hnsw_build_paramesters = fmt::format(R"(
+        {{
+            "dtype": "float32",
+            "metric_type": "l2",
+            "dim": {},
+            "hnsw": {{
+                "max_degree": 26,
+                "ef_construction": 100
+            }}
+        }}
+        )", dim);
+    auto index = vsag::Factory::CreateIndex("hnsw", hnsw_build_paramesters).value();
+    std::cout << "Start building HNSW index" << std::endl;
+    if (auto build_result = index->Build(dataset); build_result.has_value()) {
+        std::cout << "After Build(), Index HNSW contains: " << index->GetNumElements() << std::endl;
+    } else {
+        std::cerr << "Failed to build index: " << build_result.error().message << std::endl;
+        exit(-1);
+    }
 
     auto [query_vectors, query_dim, num_queries] = read_vecs<float>(query);
     auto [gt_vectors, gt_dim, num_gt] = read_vecs<int>(gt);
 
-    auto search_L = {20, 40, 60, 80, 100, 120, 140, 160, 180, 200};
+    auto search_L = {20, 40, 60, 80, 100, 120, 140, 160, 180, 200, 300, 400, 500, 600, 700, 800, 900, 1000};
+    // auto search_L = {20, 200, 1000};
     auto k = 10;
+    auto gt_k = std::min((int)gt_dim, k);
     for (auto L : search_L) {
-        JsonType search_parameters{
-                {"hnsw", {{"ef_search", L}}},
-            };
-        int correct = 0;
-        for (int i = 0; i < num_queries; ++i) {
-            auto q = Dataset::Make();
-            q->Dim(dim)->Float32Vectors(query_vectors.data() + i * dim)->NumElements(1);
-            auto qr = index->KnnSearch(q, k, search_parameters.dump());
-            std::set<uint64_t> gt_ids(gt_vectors.begin() + i * gt_dim, gt_vectors.begin() + i * gt_dim + k);
+        int round = 3;
+        auto search_param = fmt::format(search_param_hnsw, L);
+        float qps = 0.0f, recall = 0.0f;
 
-            for (int j = 0; j < k; ++j) {
-                if (const auto& id = qr.value()->GetIds()[j]; gt_ids.find(id) != gt_ids.end()) {
-                    correct++;
+        for (int x = 0 ; x < round; ++x) {
+            double time_cost_strong = 0.0;
+            int correct = 0;
+            for (int i = 0; i < num_queries; ++i) {
+                auto q = Dataset::Make();
+                q->Dim(dim)->Float32Vectors(query_vectors.data() + i * dim)->NumElements(1)->Owner(false);
+                auto st = std::chrono::high_resolution_clock::now();
+                auto qr = index->KnnSearch(q, k, search_param);
+                auto ed = std::chrono::high_resolution_clock::now();
+                time_cost_strong += std::chrono::duration<double>(ed - st).count();
+
+                std::set<uint64_t> gt_ids(gt_vectors.begin() + i * gt_dim, gt_vectors.begin() + i * gt_dim + gt_k);
+                for (int j = 0; j < k; ++j) {
+                    if (const auto& id = qr.value()->GetIds()[j]; gt_ids.find(id) != gt_ids.end()) {
+                        ++correct;
+                    }
                 }
             }
+            recall = std::max(recall, static_cast<float>(correct) / static_cast<float>(num_queries * k));
+            qps = std::max(qps, static_cast<float>(num_queries) / static_cast<float>(time_cost_strong));
         }
-        float recall = correct / static_cast<float>(num_queries * k);
-        std::cout << "L = " << L << ", Recall = " << recall << std::endl;
+        std::cout << "L = " << L << ", Recall = " << recall << ", QPS = " << qps << std::endl;
     }
-
 }
-
-constexpr static const char* search_param_tmp = R"(
-        {{
-            "hgraph": {{
-                "ef_search": {},
-                "use_extra_info_filter": {}
-            }}
-        }})";
 
 void
 test_hgraph(const std::string &base, const std::string &query, const std::string &gt) {
@@ -131,78 +98,82 @@ test_hgraph(const std::string &base, const std::string &query, const std::string
         "metric_type": "l2",
         "dim": 128,
         "index_param": {
-            "base_quantization_type": "sq8",
             "max_degree": 32,
             "ef_construction": 200
         }
     }
     )";
 
-    auto allocator = Engine::CreateDefaultAllocator();
-    Resource resource(allocator, nullptr);
-    Engine engine(&resource);
-    auto index = engine.CreateIndex("hgraph", hgraph_build_parameters).value();
+    auto index = vsag::Factory::CreateIndex("hgraph", hgraph_build_parameters).value();
     logger::debug("start building hgraph index");
+    auto start = std::chrono::high_resolution_clock::now();
+    Options::Instance().set_num_threads_building(20);
     index->Add(dataset);
-    logger::debug("hgraph index built successfully");
+    auto end = std::chrono::high_resolution_clock::now();
+    auto build_time = std::chrono::duration<double>(end - start).count();
+    logger::debug("hgraph index built in {} seconds", build_time);
 
-    logger::debug("start knn search");
-    auto [query_vectors, query_dim, num_queries] = read_vecs<float>(query);
-    logger::debug("query vectors read");
-    auto [gt_vectors, gt_dim, num_gt] = read_vecs<int>(gt);
-    logger::debug("ground truth vectors read");
+    test_search_performance(dataset, index, search_param_hgraph, query, gt);
+}
 
+void
+test_diskann(const std::string &base, const std::string &query, const std::string &gt) {
+    auto [vectors, dim, num_vectors] = read_vecs<float>(base);
 
-    auto search_L = {20, 40, 60, 80, 100, 120, 140, 160, 180, 200};
-    // auto search_L = {20, 200, 1000};
-    auto k = 10;
-    for (auto L : search_L) {
-        int round = 3;
-        auto search_param = fmt::format(search_param_tmp, L, false);
-        float qps = 0.0f, recall = 0.0f;
+    std::vector<int64_t> ids(num_vectors);
+    std::iota(ids.begin(), ids.end(), 0);
 
-        for (int x = 0 ; x < round; ++x) {
-            double time_cost_strong = 0.0;
-            int correct = 0;
-            for (int i = 0; i < num_queries; ++i) {
-                auto q = Dataset::Make();
-                q->Dim(dim)->Float32Vectors(query_vectors.data() + i * dim)->NumElements(1)->Owner(false);
-                auto st = std::chrono::high_resolution_clock::now();
-                auto qr = index->KnnSearch(q, k, search_param);
-                auto ed = std::chrono::high_resolution_clock::now();
-                time_cost_strong += std::chrono::duration<double>(ed - st).count();
+    auto dataset = Dataset::Make();
+    dataset->Dim(dim)
+        ->NumElements(num_vectors)
+        ->Ids(ids.data())
+        ->Float32Vectors(vectors.data())
+        ->Owner(false);
 
-                std::set<uint64_t> gt_ids(gt_vectors.begin() + i * gt_dim, gt_vectors.begin() + i * gt_dim + k);
-                for (int j = 0; j < k; ++j) {
-                    if (const auto& id = qr.value()->GetIds()[j]; gt_ids.find(id) != gt_ids.end()) {
-                        ++correct;
-                    }
-                }
-            }
-            recall = std::max(recall, static_cast<float>(correct) / static_cast<float>(num_queries * k));
-            qps = std::max(qps, static_cast<float>(num_queries) / static_cast<float>(time_cost_strong));
+    auto diskann_build_paramesters = R"(
+    {
+        "dtype": "float32",
+        "metric_type": "l2",
+        "dim": 128,
+        "diskann": {
+            "max_degree": 16,
+            "ef_construction": 200,
+            "pq_sample_rate": 0.5,
+            "pq_dims": 9,
+            "use_pq_search": true,
+            "use_async_io": true,
+            "use_bsa": true
         }
-        std::cout << "L = " << L << ", Recall = " << recall << ", QPS = " << qps << std::endl;
+    }
+    )";
+    auto index = vsag::Factory::CreateIndex("diskann", diskann_build_paramesters).value();
+    std::cout << "Start building DiskANN index" << std::endl;
+    if (auto build_result = index->Build(dataset); build_result.has_value()) {
+        std::cout << "After Build(), Index DiskANN contains: " << index->GetNumElements() << std::endl;
+    } else {
+        std::cerr << "Failed to build index: " << build_result.error().message << std::endl;
+        exit(-1);
     }
 
-    engine.Shutdown();
+    test_search_performance(dataset, index, search_param_diskann, query, gt);
 }
 
 int
-main() {
-    std::cout << "Hello, VSAG!" << std::endl;
+main(int argc, char* argv[]) {
+    if (argc != 4) {
+        std::cerr << "Usage: " << argv[0] << " <base> <query> <ground_truth>" << std::endl;
+        return 1;
+    }
 
-    // auto base = "/root/mount/dataset/sift/learn.fvecs";
-    // auto query = "/root/mount/dataset/sift/query.fvecs";
-    // auto gt = "/root/mount/dataset/sift/groundtruth.ivecs";
+    auto base = argv[1];
+    auto query = argv[2];
+    auto gt = argv[3];
 
-    auto base = "/root/mount/dataset/siftsmall/siftsmall_base.fvecs";
-    auto query = "/root/mount/dataset/siftsmall/siftsmall_query.fvecs";
-    auto gt = "/root/mount/dataset/siftsmall/siftsmall_groundtruth.ivecs";
+//    test_hnsw(base, query, gt);
 
     test_hgraph(base, query, gt);
 
-    //试试hnsw呢？重新计算一下gt呢？
+//    test_diskann(base, query, gt);
 
     return 0;
 }
