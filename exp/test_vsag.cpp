@@ -104,16 +104,27 @@ test_hgraph(const std::string &base, const std::string &query, const std::string
     }
     )";
 
-    auto index = vsag::Factory::CreateIndex("hgraph", hgraph_build_parameters).value();
+    Options::Instance().set_num_threads_building(20);
+    vsag::Resource resource(vsag::Engine::CreateDefaultAllocator(), vsag::Engine::CreateThreadPool(20).value());
+    vsag::Engine engine(&resource);
+
+    auto index = engine.CreateIndex("hgraph", hgraph_build_parameters).value();
     logger::debug("start building hgraph index");
     auto start = std::chrono::high_resolution_clock::now();
-    Options::Instance().set_num_threads_building(20);
     index->Add(dataset);
     auto end = std::chrono::high_resolution_clock::now();
     auto build_time = std::chrono::duration<double>(end - start).count();
     logger::debug("hgraph index built in {} seconds", build_time);
 
-    test_search_performance(dataset, index, search_param_hgraph, query, gt);
+    auto query_dataset = Dataset::Make();
+    auto [query_vectors, query_dim, num_queries] = read_vecs<float>(query);
+    query_dataset->Dim(query_dim)
+        ->NumElements(num_queries)
+        ->Float32Vectors(query_vectors.data())
+        ->Owner(false);
+
+    test_search_performance(dataset, index, search_param_hgraph, query_dataset, gt);
+    engine.Shutdown();
 }
 
 void
@@ -155,7 +166,14 @@ test_diskann(const std::string &base, const std::string &query, const std::strin
         exit(-1);
     }
 
-    test_search_performance(dataset, index, search_param_diskann, query, gt);
+    auto query_dataset = Dataset::Make();
+    auto [query_vectors, query_dim, num_queries] = read_vecs<float>(query);
+    query_dataset->Dim(query_dim)
+        ->NumElements(num_queries)
+        ->Float32Vectors(query_vectors.data())
+        ->Owner(false);
+
+    test_search_performance(dataset, index, search_param_hgraph, query_dataset, gt);
 }
 
 int

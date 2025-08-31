@@ -7,16 +7,20 @@
 
 using namespace vsag;
 
-void test_remove(const std::string& index_type = "hnsw",
-            const std::string& build_param = "",
-            const std::string& search_param = "") {
-    std::string base = "/root/datasets/sift/10k/sift_base.fvecs";
+void test_remove(const std::string& index_type,
+            const std::string& build_param,
+            const std::string& search_param,
+            const std::string& base,
+            const std::string& query,
+            const std::vector<std::string>& gt_files) {
     auto [vectors, dim, num_vectors] = read_vecs<float>(base);
+
+    Options::Instance().set_num_threads_building(64);
 
     std::vector<int64_t> ids(num_vectors);
     std::iota(ids.begin(), ids.end(), 0);
 
-    auto build_num = static_cast<int64_t>((double)num_vectors * 0.99);
+    auto build_num = static_cast<int64_t>((double)num_vectors * 0.9);
     size_t remain_num = num_vectors - build_num;
 
     auto dataset_build = Dataset::Make();
@@ -26,23 +30,34 @@ void test_remove(const std::string& index_type = "hnsw",
         ->Float32Vectors(vectors.data())
         ->Owner(false);
 
-    auto index = vsag::Factory::CreateIndex(index_type, build_param).value();
-    logger::info("Start building {} index with 99% data", index_type);
+    vsag::Resource resource(vsag::Engine::CreateDefaultAllocator(), vsag::Engine::CreateThreadPool(64).value());
+    vsag::Engine engine(&resource);
+
+    auto index = engine.CreateIndex(index_type, build_param).value();
+    logger::info("Start building {} index with 90% data", index_type);
+    auto start = std::chrono::high_resolution_clock::now();
     if (auto build_result = index->Build(dataset_build); build_result.has_value()) {
-        std::cout << "After Build(), Index " << index_type
-                  << " contains: " << index->GetNumElements() << std::endl;
+        logger::info("After Build(), Index {} contains: {}", index_type, index->GetNumElements());
     } else {
-        std::cerr << "Failed to build index: "
-                  << build_result.error().message << std::endl;
-        exit(-1);
+        logger::error("Failed to build index because {}", build_result.error().message);
+        return;
     }
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> diff = end - start;
+    logger::info("Build index time cost: {} seconds", diff.count());
 
-    // TODO: test search here
+    auto query_dataset = Dataset::Make();
+    auto [query_vectors, query_dim, num_queries] = read_vecs<float>(query);
+    query_dataset->Dim(query_dim)
+        ->NumElements(num_queries)
+        ->Float32Vectors(query_vectors.data())
+        ->Owner(false);
+    test_search_performance(dataset_build, index, search_param, query_dataset, gt_files[0], {20});
 
-    size_t step = std::max<size_t>(1, num_vectors / 1000);
-    std::cout << "Sliding step = " << step << " vectors" << std::endl;
+    size_t step = std::max<size_t>(1, num_vectors / 100);
+    logger::info("Sliding step is set to 1% of total data, which is {} vectors", step);
 
-    for (size_t offset = 0; offset < remain_num; offset += step) {
+    for (size_t offset = 0, gt_idx = 1; offset < remain_num; offset += step, ++gt_idx) {
         int64_t insert_num = (int64_t)std::min(step, remain_num - offset);
 
         auto dataset_insert = Dataset::Make();
@@ -53,27 +68,62 @@ void test_remove(const std::string& index_type = "hnsw",
             ->Owner(false);
 
         if (auto insert_result = index->Add(dataset_insert); insert_result.has_value()) {
-            std::cout << "Inserted " << insert_num << " vectors, total = "
-                      << index->GetNumElements() << std::endl;
-        } else {
-            std::cerr << "Insert failed: " << insert_result.error().message << std::endl;
+            logger::info("After Add(), Index contains: {}", index->GetNumElements());
         }
 
         for (size_t j = 0; j < insert_num; ++j) {
             int64_t remove_id = ids[offset + j];
-            if (auto remove_result = index->Remove(remove_id); remove_result.has_value()) {
-                std::cout << "Removed id " << remove_id << std::endl;
-            } else {
-                std::cerr << "Remove failed: " << remove_result.error().message << std::endl;
+            if (auto remove_result = index->Remove(remove_id); remove_result.has_value() && !remove_result.value()) {
+                logger::error("Failed to remove because {}", remove_result.error().message);
             }
         }
+        logger::info("After Remove(), Index contains: {}", index->GetNumElements());
 
-        // TODO: Test search after each insertion and deletion
+        auto dataset_now = Dataset::Make();
+        dataset_now->Dim(dim)
+            ->NumElements(index->GetNumElements())
+            ->Ids(ids.data() + offset + insert_num)
+            ->Float32Vectors(vectors.data() + (offset + insert_num) * dim)
+            ->Owner(false);
+
+        test_search_performance(dataset_now, index, search_param, query_dataset, gt_files[gt_idx], {20});
     }
 
+    engine.Shutdown();
 
 }
 
-int main(){
-    test_remove();
+int main(int argc, char** argv) {
+    if (argc < 3) {
+        std::cerr << "Usage: " << argv[0] << " <base_data> <query_data> <gt_path>" << std::endl;
+        return -1;
+    }
+
+    redirect_output("/root/code/algotests/vsag-test/exp/logs/sift10k_mannual.log");
+
+    auto base = argv[1];
+    auto query = argv[2];
+    std::string hgraph_build_parameters = R"(
+    {
+        "dtype": "float32",
+        "metric_type": "l2",
+        "dim": 128,
+        "index_param": {
+            "max_degree": 32,
+            "ef_construction": 200,
+            "support_remove": true
+        }
+    }
+    )";
+    std::vector<std::string> gt_files = {};
+    if (argc > 3) {
+        for (int i = 0; i <= 10; ++i){
+            std::string prefix(argv[3]);
+            gt_files.emplace_back(prefix + "/gt_" + std::to_string(i) + ".ivecs");
+        }
+    } else {
+        gt_files.resize(11, "");
+    }
+    test_remove("hgraph", hgraph_build_parameters, search_param_hgraph, base, query, gt_files);
+
 }
