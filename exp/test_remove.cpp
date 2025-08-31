@@ -8,14 +8,27 @@
 using namespace vsag;
 
 void test_remove(const std::string& index_type,
-            const std::string& build_param,
             const std::string& search_param,
             const std::string& base,
             const std::string& query,
-            const std::vector<std::string>& gt_files) {
+            const std::vector<std::string>& gt_files,
+            int num_threads = 64) {
     auto [vectors, dim, num_vectors] = read_vecs<float>(base);
+    std::string build_param = R"(
+    {{
+        "dtype": "float32",
+        "metric_type": "l2",
+        "dim": {},
+        "index_param": {{
+            "max_degree": 64,
+            "ef_construction": 200,
+            "support_remove": true
+        }}
+    }}
+    )";
+    build_param = fmt::format(build_param, dim);
 
-    Options::Instance().set_num_threads_building(64);
+    Options::Instance().set_num_threads_building(num_threads);
 
     std::vector<int64_t> ids(num_vectors);
     std::iota(ids.begin(), ids.end(), 0);
@@ -30,7 +43,7 @@ void test_remove(const std::string& index_type,
         ->Float32Vectors(vectors.data())
         ->Owner(false);
 
-    vsag::Resource resource(vsag::Engine::CreateDefaultAllocator(), vsag::Engine::CreateThreadPool(64).value());
+    vsag::Resource resource(vsag::Engine::CreateDefaultAllocator(), vsag::Engine::CreateThreadPool(num_threads).value());
     vsag::Engine engine(&resource);
 
     auto index = engine.CreateIndex(index_type, build_param).value();
@@ -95,26 +108,14 @@ void test_remove(const std::string& index_type,
 
 int main(int argc, char** argv) {
     if (argc < 3) {
-        std::cerr << "Usage: " << argv[0] << " <base_data> <query_data> <gt_path>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <base_data> <query_data> <gt_path_prefix>" << std::endl;
         return -1;
     }
 
-    redirect_output("/root/code/algotests/vsag-test/exp/logs/sift10k_mannual.log");
+    redirect_output("/root/code/algotests/vsag-test/exp/logs/gist_mannual.log");
 
     auto base = argv[1];
     auto query = argv[2];
-    std::string hgraph_build_parameters = R"(
-    {
-        "dtype": "float32",
-        "metric_type": "l2",
-        "dim": 128,
-        "index_param": {
-            "max_degree": 32,
-            "ef_construction": 200,
-            "support_remove": true
-        }
-    }
-    )";
     std::vector<std::string> gt_files = {};
     if (argc > 3) {
         for (int i = 0; i <= 10; ++i){
@@ -124,6 +125,6 @@ int main(int argc, char** argv) {
     } else {
         gt_files.resize(11, "");
     }
-    test_remove("hgraph", hgraph_build_parameters, search_param_hgraph, base, query, gt_files);
+    test_remove("hgraph", search_param_hgraph, base, query, gt_files);
 
 }
