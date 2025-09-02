@@ -112,7 +112,7 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    redirect_output("/root/code/algotests/vsag-test/exp/logs/sift100k_mannual_Ls.log");
+//    redirect_output("/root/code/algotests/vsag-test/exp/logs/sift100k_mannual_Ls.log");
 
     auto base = argv[1];
     auto query = argv[2];

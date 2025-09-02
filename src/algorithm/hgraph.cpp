@@ -1520,39 +1520,36 @@ HGraph::Remove(int64_t id) {
     // TODO(inbao): support thread safe remove
     auto inner_id = this->label_table_->GetIdByLabel(id);
 
-    /* FIXME 交换最后一个点的data和label到被删除的点的位置上，然后修复图结构？或者就根本不需要交换，存在deleted_ids，下次插入时放进来
-     * 通过搜索被删除的点，得到ef_c大小的候选集，然后修复原来被删除的点每一个邻居
-     */
-    DistHeapPtr result = nullptr;
-    InnerSearchParam param{
-        .topk = 1,
-        .ep = this->entry_point_id_,
-        .ef = 1,
-        .is_inner_id_allowed = nullptr,
-    };
-
-    auto level = static_cast<int>(route_graphs_.size()) - 1;
-
-    LockGuard cur_lock(neighbors_mutex_, inner_id);
-    auto& flatten_codes = basic_flatten_codes_;
-    bool need_release1 = false;
-    for (auto j = this->route_graphs_.size() - 1; j > level; --j) {
-        result = search_one_graph(this->basic_flatten_codes_->GetCodesById(inner_id, need_release1), route_graphs_[j], flatten_codes, param);
-        param.ep = result->Top().second;
-    }
-
-    param.ef = this->ef_construct_;
-    param.topk = static_cast<int64_t>(ef_construct_);
-    bool need_release2 = false;
-    result = search_one_graph(this->basic_flatten_codes_->GetCodesById(inner_id, need_release2), this->bottom_graph_, flatten_codes, param);
-    repair_neighbors_connectivity(
-        inner_id, result, this->bottom_graph_, flatten_codes, neighbors_mutex_, allocator_);
-
-    for (int64_t j = 0; j <= level; ++j) {
-        result = search_one_graph(this->basic_flatten_codes_->GetCodesById(inner_id, need_release1), route_graphs_[j], flatten_codes, param);
-        repair_neighbors_connectivity(
-            inner_id, result, route_graphs_[j], flatten_codes, neighbors_mutex_, allocator_);
-    }
+//    DistHeapPtr result = nullptr;
+//    InnerSearchParam param{
+//        .topk = 1,
+//        .ep = this->entry_point_id_,
+//        .ef = 1,
+//        .is_inner_id_allowed = nullptr,
+//    };
+//
+//    auto level = static_cast<int>(route_graphs_.size()) - 1;
+//
+//    LockGuard cur_lock(neighbors_mutex_, inner_id);
+//    auto& flatten_codes = basic_flatten_codes_;
+//    bool need_release1 = false;
+//    for (auto j = this->route_graphs_.size() - 1; j > level; --j) {
+//        result = search_one_graph(this->basic_flatten_codes_->GetCodesById(inner_id, need_release1), route_graphs_[j], flatten_codes, param);
+//        param.ep = result->Top().second;
+//    }
+//
+//    param.ef = this->ef_construct_;
+//    param.topk = static_cast<int64_t>(ef_construct_);
+//    bool need_release2 = false;
+//    result = search_one_graph(this->basic_flatten_codes_->GetCodesById(inner_id, need_release2), this->bottom_graph_, flatten_codes, param);
+//    repair_neighbors_connectivity(
+//        inner_id, result, this->bottom_graph_, flatten_codes, neighbors_mutex_, allocator_);
+//
+//    for (int64_t j = 0; j <= level; ++j) {
+//        result = search_one_graph(this->basic_flatten_codes_->GetCodesById(inner_id, need_release1), route_graphs_[j], flatten_codes, param);
+//        repair_neighbors_connectivity(
+//            inner_id, result, route_graphs_[j], flatten_codes, neighbors_mutex_, allocator_);
+//    }
 
     if (inner_id == this->entry_point_id_) {
         bool find_new_ep = false;
@@ -1574,7 +1571,7 @@ HGraph::Remove(int64_t id) {
             route_graphs_.pop_back();
         }
     }
-    for (level = static_cast<int>(route_graphs_.size()) - 1; level >= 0; --level) {
+    for (auto level = static_cast<int>(route_graphs_.size()) - 1; level >= 0; --level) {
         this->route_graphs_[level]->DeleteNeighborsById(inner_id);
     }
     this->bottom_graph_->DeleteNeighborsById(inner_id);
