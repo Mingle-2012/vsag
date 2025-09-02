@@ -20,7 +20,7 @@ void test_remove(const std::string& index_type,
         "metric_type": "l2",
         "dim": {},
         "index_param": {{
-            "max_degree": 64,
+            "max_degree": 32,
             "ef_construction": 200,
             "support_remove": true
         }}
@@ -65,7 +65,7 @@ void test_remove(const std::string& index_type,
         ->NumElements(num_queries)
         ->Float32Vectors(query_vectors.data())
         ->Owner(false);
-    test_search_performance(dataset_build, index, search_param, query_dataset, gt_files[0], {20});
+    test_search_performance_with_ids(dataset_build, index, search_param, query_dataset, {20, 50, 80});
 
     size_t step = std::max<size_t>(1, num_vectors / 100);
     logger::info("Sliding step is set to 1% of total data, which is {} vectors", step);
@@ -99,7 +99,7 @@ void test_remove(const std::string& index_type,
             ->Float32Vectors(vectors.data() + (offset + insert_num) * dim)
             ->Owner(false);
 
-        test_search_performance(dataset_now, index, search_param, query_dataset, gt_files[gt_idx], {20});
+        test_search_performance_with_ids(dataset_now, index, search_param, query_dataset, {20, 50, 80});
     }
 
     engine.Shutdown();
@@ -112,7 +112,7 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    redirect_output("/root/code/algotests/vsag-test/exp/logs/gist_mannual.log");
+    redirect_output("/root/code/algotests/vsag-test/exp/logs/sift100k_mannual_Ls.log");
 
     auto base = argv[1];
     auto query = argv[2];

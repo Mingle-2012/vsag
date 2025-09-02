@@ -32,4 +32,12 @@ mutually_connect_new_element(InnerIdType cur_c,
                              const MutexArrayPtr& neighbors_mutexes,
                              Allocator* allocator);
 
+void
+repair_neighbors_connectivity(InnerIdType deleted_point,
+                              const DistHeapPtr& top_candidates,
+                              const GraphInterfacePtr& graph,
+                              const FlattenInterfacePtr& flatten,
+                              const MutexArrayPtr& neighbors_mutexes,
+                              Allocator* allocator);
+
 }  // namespace vsag

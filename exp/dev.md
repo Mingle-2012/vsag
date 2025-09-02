@@ -10,6 +10,8 @@
 测试recall和qps? tail latency
 删除固定的点，然后得到base，同时构建BruteForce来查询
 
-删完之后的空位怎么办，把最后一个vector放到空位上？
-
 2. 提前计算ground truth来加快实验速度，脚本还是有问题
+
+3. 删完之后的空位怎么办，把最后一个vector放到空位上？
+
+4. 

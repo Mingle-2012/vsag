@@ -212,3 +212,111 @@ test_search_performance(const DatasetPtr& dataset,
         logger::info("L = {}, Recall = {}, QPS = {}", L, recall, qps);
     }
 }
+
+void
+test_search_performance_with_ids(const DatasetPtr& dataset,
+                        const IndexPtr& index,
+                        const std::string &search_param_json,
+                        const DatasetPtr& query,
+                        const std::vector<int>& search_L = {20, 30, 40, 50, 60, 70, 80, 90, 100, 150, 200, 300, 400, 500, 600, 700, 800},
+                        int k = 10,
+                        int round = 3) {
+    logger::info("Start testing search performance");
+    auto dim = dataset->GetDim();
+    auto query_dim = query->GetDim();
+    if (dim != query_dim) {
+        logger::error("dim of dataset({}) not equal to dim of query({})", dim, query_dim);
+        return;
+    }
+
+    auto num_queries = query->GetNumElements();
+    int64_t gt_dim = 0, num_gt = 0;
+    std::shared_ptr<std::pair<float, int>[]> gt_pair;
+    num_gt = num_queries;
+    gt_dim = k;
+    gt_pair = std::shared_ptr<std::pair<float, int>[]>(new std::pair<float, int>[num_gt * gt_dim]);
+    {
+#pragma omp parallel for schedule(dynamic)
+        for (int i = 0 ; i < num_queries; ++i) {
+            std::vector<std::pair<float, int>> vec_dists;
+            vec_dists.reserve(k + 1);
+
+            for (InnerIdType j = 0; j < dataset->GetNumElements(); ++j) {
+                float dist = vsag::L2Sqr(query->GetFloat32Vectors() + i * dim,
+                                         dataset->GetFloat32Vectors() + j * dim,
+                                         &dim);
+                vec_dists.emplace_back(dist, dataset->GetIds()[j]);
+                std::push_heap(vec_dists.begin(), vec_dists.end());
+
+                if (vec_dists.size() > static_cast<size_t>(k)) {
+                    std::pop_heap(vec_dists.begin(), vec_dists.end());
+                    vec_dists.pop_back();
+                }
+            }
+            std::sort_heap(vec_dists.begin(), vec_dists.end());
+            std::move(vec_dists.begin(), vec_dists.begin() + k, gt_pair.get() + i * k);
+        }
+    }
+
+    for (auto L : search_L) {
+        auto search_param = fmt::format(search_param_json, L, false);
+        float qps = 0.0f, recall = 0.0f;
+        for (int x = 0 ; x < round; ++x) {
+            std::set<int> fail_ids;
+            double time_cost_strong = 0.0;
+            float correct = 0;
+            for (int i = 0; i < query->GetNumElements(); ++i) {
+                auto q = Dataset::Make();
+                q->Dim(dim)
+                    ->Float32Vectors(query->GetFloat32Vectors() + i * dim)
+                    ->NumElements(1)
+                    ->Owner(false);
+                auto st = std::chrono::high_resolution_clock::now();
+                auto qr = index->KnnSearch(q, k, search_param);
+                auto ed = std::chrono::high_resolution_clock::now();
+                time_cost_strong += std::chrono::duration<double>(ed - st).count();
+
+//                std::vector<std::pair<float, int>> gt_distances(gt_pair.get(), gt_pair.get() + k);
+//                std::sort(gt_distances.begin(), gt_distances.end());
+//                float threshold = gt_distances[k - 1].first;
+                size_t count = 0;
+//                for (int j = 0; j < k; ++j) {
+//                    auto distance = distance_func(query->GetFloat32Vectors() + i * dim, dataset->GetFloat32Vectors() + qr.value()->GetIds()[j] * dim, &dim);
+//                    if (distance <= threshold + THRESHOLD_ERROR) {
+//                        ++count;
+//                    } else {
+//                        fail_ids.emplace_back(qr.value()->GetIds()[j]);
+//                    }
+//                }
+                std::unordered_set<InnerIdType> gt_set, found_set;
+                for (int j = 0; j < k; ++j) {
+                    gt_set.insert(gt_pair[i * k + j].second);
+                }
+                for (int j = 0 ; j < k ; ++j){
+                    if (gt_set.count(qr.value()->GetIds()[j]) > 0){
+                        ++count;
+                        found_set.insert(qr.value()->GetIds()[j]);
+                    }
+                }
+                for (int j = 0; j < k; ++j) {
+                    if (found_set.count(gt_pair[i * k + j].second) == 0){
+                        fail_ids.insert(gt_pair[i * k + j].second);
+                    }
+                }
+
+                auto val =  static_cast<float>(count) / static_cast<float>(k);
+                correct += val;
+            }
+            recall = std::max(recall, correct / static_cast<float>(num_queries));
+            qps = std::max(qps, static_cast<float>(num_queries) / static_cast<float>(time_cost_strong));
+
+            std::cout << "fail ids: ";
+            for (auto& id : fail_ids){
+                std::cout << id << ",";
+            }
+            std::cout << std::endl;
+
+        }
+        logger::info("L = {}, Recall = {}, QPS = {}", L, recall, qps);
+    }
+}

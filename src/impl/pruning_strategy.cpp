@@ -132,4 +132,57 @@ mutually_connect_new_element(InnerIdType cur_c,
     return next_closest_entry_point;
 }
 
+void
+repair_neighbors_connectivity(InnerIdType deleted_point,
+                             const DistHeapPtr& top_candidates,
+                             const GraphInterfacePtr& graph,
+                             const FlattenInterfacePtr& flatten,
+                             const MutexArrayPtr& neighbors_mutexes,
+                             Allocator* allocator) {
+    const size_t max_size = graph->MaximumDegree();
+
+    Vector<InnerIdType> delete_point_neighbors(allocator);
+    graph->GetNeighbors(deleted_point, delete_point_neighbors);
+
+    Vector<InnerIdType> search_candidates(allocator);
+    search_candidates.reserve(max_size);
+    while (not top_candidates->Empty()) {
+        search_candidates.emplace_back(top_candidates->Top().second);
+        top_candidates->Pop();
+    }
+
+    for (auto original_neighbor : delete_point_neighbors) {
+        LockGuard lock(neighbors_mutexes, original_neighbor);
+
+        Vector<InnerIdType> neighbors(allocator);
+        graph->GetNeighbors(original_neighbor, neighbors);
+
+        size_t sz_link_list_other = neighbors.size();
+
+        auto candidates = std::make_shared<StandardHeap<true, false>>(allocator, -1);
+
+        for (size_t j = 0; j < sz_link_list_other; j++) {
+            candidates->Push(flatten->ComputePairVectors(neighbors[j], original_neighbor),
+                             neighbors[j]);
+        }
+
+        for (const auto& candidate : search_candidates) {
+            if (candidate != original_neighbor && candidate != deleted_point) {
+                candidates->Push(flatten->ComputePairVectors(candidate, original_neighbor),
+                                 candidate);
+            }
+        }
+
+        select_edges_by_heuristic(candidates, max_size, flatten, allocator);
+
+        Vector<InnerIdType> cand_neighbors(allocator);
+        while (not candidates->Empty()) {
+            cand_neighbors.emplace_back(candidates->Top().second);
+            candidates->Pop();
+        }
+        graph->InsertNeighborsById(original_neighbor, cand_neighbors);
+    }
+}
+
+
 }  // namespace vsag
