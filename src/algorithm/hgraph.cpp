@@ -1520,36 +1520,44 @@ HGraph::Remove(int64_t id) {
     // TODO(inbao): support thread safe remove
     auto inner_id = this->label_table_->GetIdByLabel(id);
 
-//    DistHeapPtr result = nullptr;
-//    InnerSearchParam param{
-//        .topk = 1,
-//        .ep = this->entry_point_id_,
-//        .ef = 1,
-//        .is_inner_id_allowed = nullptr,
-//    };
-//
-//    auto level = static_cast<int>(route_graphs_.size()) - 1;
-//
-//    LockGuard cur_lock(neighbors_mutex_, inner_id);
-//    auto& flatten_codes = basic_flatten_codes_;
-//    bool need_release1 = false;
-//    for (auto j = this->route_graphs_.size() - 1; j > level; --j) {
-//        result = search_one_graph(this->basic_flatten_codes_->GetCodesById(inner_id, need_release1), route_graphs_[j], flatten_codes, param);
-//        param.ep = result->Top().second;
-//    }
-//
-//    param.ef = this->ef_construct_;
-//    param.topk = static_cast<int64_t>(ef_construct_);
-//    bool need_release2 = false;
-//    result = search_one_graph(this->basic_flatten_codes_->GetCodesById(inner_id, need_release2), this->bottom_graph_, flatten_codes, param);
-//    repair_neighbors_connectivity(
-//        inner_id, result, this->bottom_graph_, flatten_codes, neighbors_mutex_, allocator_);
-//
-//    for (int64_t j = 0; j <= level; ++j) {
-//        result = search_one_graph(this->basic_flatten_codes_->GetCodesById(inner_id, need_release1), route_graphs_[j], flatten_codes, param);
-//        repair_neighbors_connectivity(
-//            inner_id, result, route_graphs_[j], flatten_codes, neighbors_mutex_, allocator_);
-//    }
+    DistHeapPtr result = nullptr;
+    InnerSearchParam param{
+        .topk = 1,
+        .ep = this->entry_point_id_,
+        .ef = 1,
+        .is_inner_id_allowed = nullptr,
+    };
+
+    auto max_level = static_cast<int>(route_graphs_.size()) - 1;
+
+    LockGuard cur_lock(neighbors_mutex_, inner_id);
+    auto& flatten_codes = basic_flatten_codes_;
+    Vector<float> delete_point_data(dim_, 0.0F, allocator_);
+    GetVectorByInnerId(inner_id, delete_point_data.data());
+    logger::debug("Vector to delete: {}", fmt::join(delete_point_data, ", "));
+
+    // FIXME 搜索应该先搜到这个点的层，然后再从上到下搜索
+    // FIXME unknownError: Resource deadlock avoided
+    for (auto j = this->route_graphs_.size() - 1; j > max_level; --j) {
+        result = search_one_graph(delete_point_data.data(), route_graphs_[j], flatten_codes, param);
+        param.ep = result->Top().second;
+    }
+
+    param.ef = this->ef_construct_;
+    param.topk = static_cast<int64_t>(ef_construct_);
+
+    result = search_one_graph(delete_point_data.data(), this->bottom_graph_, flatten_codes, param);
+
+    logger::debug(
+        fmt::format("remove id {} inner_id {} find {} neighbors in bottom graph", id, inner_id, result->Size()));
+
+    repair_neighbors_connectivity(
+        inner_id, result, this->bottom_graph_, flatten_codes, neighbors_mutex_, allocator_);
+    for (int64_t j = 0; j <= max_level; ++j) {
+        result = search_one_graph(delete_point_data.data(), route_graphs_[j], flatten_codes, param);
+        repair_neighbors_connectivity(
+            inner_id, result, route_graphs_[j], flatten_codes, neighbors_mutex_, allocator_);
+    }
 
     if (inner_id == this->entry_point_id_) {
         bool find_new_ep = false;
