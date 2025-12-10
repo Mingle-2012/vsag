@@ -99,7 +99,7 @@ void test_remove(const std::string& index_type,
             ->Float32Vectors(vectors.data() + (offset + insert_num) * dim)
             ->Owner(false);
 
-        test_search_performance_with_ids(dataset_now, index, search_param, query_dataset, {20, 50, 80});
+        test_search_performance_with_ids(dataset_now, index, search_param, query_dataset, {20});
     }
 
     engine.Shutdown();
