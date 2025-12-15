@@ -1530,32 +1530,62 @@ HGraph::Remove(int64_t id) {
 
     auto max_level = static_cast<int>(route_graphs_.size()) - 1;
 
-    LockGuard cur_lock(neighbors_mutex_, inner_id);
-    auto& flatten_codes = basic_flatten_codes_;
+    auto flatten_codes = basic_flatten_codes_;
     Vector<float> delete_point_data(dim_, 0.0F, allocator_);
     GetVectorByInnerId(inner_id, delete_point_data.data());
 
-    for (int j = this->route_graphs_.size() - 1; j >= 0; --j) {
+    int level = -1;
+    for (int j = max_level; j >= 0; --j) {
+        if (route_graphs_[j]->GetNeighborSize(inner_id) != 0) {
+            level = j;
+            break;
+        }
         result = search_one_graph(delete_point_data.data(), route_graphs_[j], flatten_codes, param);
         param.ep = result->Top().second;
-        logger::debug("remove id {} inner_id {} find entry point {} in level {}", id, inner_id, param.ep, j);
     }
 
-    // param.ef = this->ef_construct_;
-    // param.topk = static_cast<int64_t>(ef_construct_);
-    //
-    // result = search_one_graph(delete_point_data.data(), this->bottom_graph_, flatten_codes, param);
-    //
-    // logger::debug(
-    //     fmt::format("remove id {} inner_id {} find {} neighbors in bottom graph", id, inner_id, result->Size()));
-    //
-    // repair_neighbors_connectivity(
-    //     inner_id, result, this->bottom_graph_, flatten_codes, neighbors_mutex_, allocator_);
-    // for (int64_t j = 0; j <= max_level; ++j) {
-    //     result = search_one_graph(delete_point_data.data(), route_graphs_[j], flatten_codes, param);
-    //     repair_neighbors_connectivity(
-    //         inner_id, result, route_graphs_[j], flatten_codes, neighbors_mutex_, allocator_);
+    // if (inner_id % 100 == 0){
+    //     logger::info(fmt::format("remove id {} inner_id {} at level {}", id, inner_id, level));
     // }
+
+    // FIXME 目前：先把所有搜到的点，全都修一遍。或许只修出度、入度会更好？
+    param.ef = this->ef_construct_;
+    param.topk = static_cast<int64_t>(ef_construct_);
+
+    if (level != -1) {
+        // if (inner_id % 10 == 0){
+        //     logger::info(fmt::format("repairing route graph at level {}", level));
+        // }
+        for (int l = level; l >= 0 ; --l) {
+            if (route_graphs_[l]->TotalCount() == 0) {
+                continue;
+            }
+            result = search_one_graph(delete_point_data.data(), route_graphs_[l], flatten_codes, param);
+            auto result_data = result->GetData();
+            Vector<InnerIdType> neighbors_to_repair(allocator_);
+            for (int64_t i = 0; i < result->Size(); ++i) {
+                neighbors_to_repair.emplace_back(result_data[i].second);
+            }
+            repair_neighbors_connectivity(
+                inner_id, neighbors_to_repair, result, route_graphs_[l], flatten_codes, neighbors_mutex_, allocator_);
+        }
+    }
+
+    // if (inner_id % 10 == 0){
+    //     logger::info("Repairing base graph");
+    // }
+
+    if (bottom_graph_->TotalCount() != 0) {
+        result = search_one_graph(delete_point_data.data(), bottom_graph_, flatten_codes, param);
+        auto result_data = result->GetData();
+        Vector<InnerIdType> neighbors_to_repair(allocator_);
+        for (int64_t i = 0; i < result->Size(); ++i) {
+            neighbors_to_repair.emplace_back(result_data[i].second);
+        }
+        repair_neighbors_connectivity(
+            inner_id, neighbors_to_repair, result, bottom_graph_, flatten_codes, neighbors_mutex_, allocator_);
+    }
+
 
     if (inner_id == this->entry_point_id_) {
         bool find_new_ep = false;

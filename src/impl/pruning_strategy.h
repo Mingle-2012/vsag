@@ -34,6 +34,7 @@ mutually_connect_new_element(InnerIdType cur_c,
 
 void
 repair_neighbors_connectivity(InnerIdType deleted_point,
+                              const Vector<InnerIdType>& affected_points,
                               const DistHeapPtr& top_candidates,
                               const GraphInterfacePtr& graph,
                               const FlattenInterfacePtr& flatten,
