@@ -31,7 +31,7 @@ void redirect_output(const std::string& filename) {
         }
     }
 
-    int fd = ::open(filename.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
+    const int fd = ::open(filename.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd == -1) {
         perror("open");
         return;
@@ -115,7 +115,7 @@ constexpr static const char* search_param_diskann = R"(
 }}
 )";
 
-void
+inline void
 test_search_performance(const DatasetPtr& dataset,
                         const IndexPtr& index,
                         const std::string &search_param_json,
@@ -213,7 +213,7 @@ test_search_performance(const DatasetPtr& dataset,
     }
 }
 
-void
+inline void
 test_search_performance_with_ids(const DatasetPtr& dataset,
                         const IndexPtr& index,
                         const std::string &search_param_json,
@@ -310,11 +310,11 @@ test_search_performance_with_ids(const DatasetPtr& dataset,
             recall = std::max(recall, correct / static_cast<float>(num_queries));
             qps = std::max(qps, static_cast<float>(num_queries) / static_cast<float>(time_cost_strong));
 
-            std::cout << "fail ids: ";
-            for (auto& id : fail_ids){
-                std::cout << id << ",";
-            }
-            std::cout << std::endl;
+            // std::cout << "fail ids: ";
+            // for (auto& id : fail_ids){
+            //     std::cout << id << ",";
+            // }
+            // std::cout << std::endl;
 
         }
         logger::info("L = {}, Recall = {}, QPS = {}", L, recall, qps);
