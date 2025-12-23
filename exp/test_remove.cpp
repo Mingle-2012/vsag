@@ -65,7 +65,7 @@ void test_remove(const std::string& index_type,
         ->NumElements(num_queries)
         ->Float32Vectors(query_vectors.data())
         ->Owner(false);
-    test_search_performance_with_ids(dataset_build, index, search_param, query_dataset, {20, 50, 80});
+    test_search_performance(dataset_build, index, search_param, query_dataset, gt_files[0], {15});
 
     size_t step = std::max<size_t>(1, num_vectors / 100);
     logger::info("Sliding step is set to 1% of total data, which is {} vectors", step);
@@ -80,17 +80,31 @@ void test_remove(const std::string& index_type,
             ->Float32Vectors(vectors.data() + (build_num + offset) * dim)
             ->Owner(false);
 
+        auto st = std::chrono::high_resolution_clock::now();
         if (auto insert_result = index->Add(dataset_insert); insert_result.has_value()) {
             logger::info("After Add(), Index contains: {}", index->GetNumElements());
         }
+        auto ed = std::chrono::high_resolution_clock::now();
+        auto time_cost_strong = std::chrono::duration<double>(ed - st).count();
+        logger::info("Insert {} vectors time cost: {} seconds, latency per vector: {} ms",
+                     insert_num,
+                     time_cost_strong,
+                     (time_cost_strong / insert_num) * 1000.0);
 
+        start = std::chrono::high_resolution_clock::now();
         for (size_t j = 0; j < insert_num; ++j) {
             int64_t remove_id = ids[offset + j];
             if (auto remove_result = index->Remove(remove_id); remove_result.has_value() && !remove_result.value()) {
                 logger::error("Failed to remove because {}", remove_result.error().message);
             }
         }
+        end = std::chrono::high_resolution_clock::now();
         logger::info("After Remove(), Index contains: {}", index->GetNumElements());
+        time_cost_strong = std::chrono::duration<double>(end - start).count();
+        logger::info("Remove {} vectors time cost: {} seconds, latency per vector: {} ms",
+                     insert_num,
+                     time_cost_strong,
+                     (time_cost_strong / insert_num) * 1000.0);
 
         auto dataset_now = Dataset::Make();
         dataset_now->Dim(dim)
@@ -99,7 +113,7 @@ void test_remove(const std::string& index_type,
             ->Float32Vectors(vectors.data() + (offset + insert_num) * dim)
             ->Owner(false);
 
-        test_search_performance_with_ids(dataset_now, index, search_param, query_dataset, {20, 50, 80});
+        test_search_performance(dataset_now, index, search_param, query_dataset, gt_files[gt_idx], {15});
     }
 
     engine.Shutdown();
@@ -112,7 +126,7 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    redirect_output("/root/code/algotests/vsag-test/exp/logs/sift1m_mannual_1.log");
+    // redirect_output("/root/code/algotests/vsag-test/exp/logs/20251222/ours2-1.log");
 
     auto base = argv[1];
     auto query = argv[2];
