@@ -41,4 +41,14 @@ repair_neighbors_connectivity(InnerIdType deleted_point,
                               const MutexArrayPtr& neighbors_mutexes,
                               Allocator* allocator);
 
+void
+repair_neighbor_connectivity(InnerIdType deleted_point,
+                             InnerIdType point_to_repair,
+                              const Vector<InnerIdType>& top_candidates,
+                              const GraphInterfacePtr& graph,
+                              const FlattenInterfacePtr& flatten,
+                              const MutexArrayPtr& neighbors_mutexes,
+                              Allocator* allocator);
+
+
 }  // namespace vsag

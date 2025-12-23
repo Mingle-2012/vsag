@@ -157,6 +157,11 @@ repair_neighbors_connectivity(InnerIdType deleted_point,
 
         size_t sz_link_list_other = neighbors.size();
 
+        UnorderedSet<InnerIdType> neighbor_set(allocator);
+        for (const auto& neighbor : neighbors) {
+            neighbor_set.insert(neighbor);
+        }
+
         auto candidates = std::make_shared<StandardHeap<true, false>>(allocator, -1);
 
         for (size_t j = 0; j < sz_link_list_other; j++) {
@@ -165,7 +170,7 @@ repair_neighbors_connectivity(InnerIdType deleted_point,
         }
 
         for (const auto& candidate : search_candidates) {
-            if (candidate != affected_point && candidate != deleted_point) {
+            if (candidate != affected_point && candidate != deleted_point && neighbor_set.find(candidate) == neighbor_set.end()) {
                 candidates->Push(flatten->ComputePairVectors(candidate, affected_point),
                                  candidate);
             }
@@ -182,5 +187,63 @@ repair_neighbors_connectivity(InnerIdType deleted_point,
     }
 }
 
+void
+repair_neighbor_connectivity(InnerIdType deleted_point,
+                             InnerIdType point_to_repair,
+                              const Vector<InnerIdType>& top_candidates,
+                              const GraphInterfacePtr& graph,
+                              const FlattenInterfacePtr& flatten,
+                              const MutexArrayPtr& neighbors_mutexes,
+                              Allocator* allocator) {
+    const size_t max_size = graph->MaximumDegree();
+    LockGuard lock(neighbors_mutexes, point_to_repair);
+    Vector<InnerIdType> neighbors(allocator);
+    graph->GetNeighbors(point_to_repair, neighbors);
+
+    UnorderedSet<InnerIdType> neighbor_set(allocator);
+    for (const auto& neighbor : neighbors) {
+        neighbor_set.insert(neighbor);
+    }
+    size_t sz_link_list_other = neighbors.size();
+
+    InnerIdType cur_c = -1;
+    float min_dist = std::numeric_limits<float>::max();
+    for (const auto& candidate : top_candidates) {
+        if (candidate == deleted_point) {
+            continue;
+        }
+        float dist = flatten->ComputePairVectors(candidate, point_to_repair);
+        if (dist < min_dist && neighbor_set.find(candidate) == neighbor_set.end()) {
+            min_dist = dist;
+            cur_c = candidate;
+        }
+    }
+
+    if (cur_c == -1) {
+        return;
+    }
+
+    if (sz_link_list_other < max_size) {
+        neighbors.emplace_back(cur_c);
+        graph->InsertNeighborsById(point_to_repair, neighbors);
+    } else {
+        auto candidates = std::make_shared<StandardHeap<true, false>>(allocator, -1);
+        candidates->Push(min_dist, cur_c);
+
+        for (size_t j = 0; j < sz_link_list_other; j++) {
+            candidates->Push(flatten->ComputePairVectors(neighbors[j], point_to_repair),
+                             neighbors[j]);
+        }
+
+        select_edges_by_heuristic(candidates, max_size, flatten, allocator);
+
+        Vector<InnerIdType> cand_neighbors(allocator);
+        while (not candidates->Empty()) {
+            cand_neighbors.emplace_back(candidates->Top().second);
+            candidates->Pop();
+        }
+        graph->InsertNeighborsById(point_to_repair, cand_neighbors);
+    }
+}
 
 }  // namespace vsag

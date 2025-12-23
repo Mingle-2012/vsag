@@ -1515,6 +1515,7 @@ HGraph::GetCodeByInnerId(InnerIdType inner_id, uint8_t* data) const {
     }
 }
 
+// 搜候选集，修复全部
 bool
 HGraph::Remove(int64_t id) {
     // TODO(inbao): support thread safe remove
@@ -1562,8 +1563,8 @@ HGraph::Remove(int64_t id) {
             for (int64_t i = 0; i < result->Size(); ++i) {
                 neighbors_to_repair.emplace_back(result_data[i].second);
             }
-            // repair_neighbors_connectivity(
-            //     inner_id, neighbors_to_repair, result, route_graphs_[l], flatten_codes, neighbors_mutex_, allocator_);
+            repair_neighbors_connectivity(
+                inner_id, neighbors_to_repair, result, route_graphs_[l], flatten_codes, neighbors_mutex_, allocator_);
         }
     }
 
@@ -1574,8 +1575,8 @@ HGraph::Remove(int64_t id) {
         for (int64_t i = 0; i < result->Size(); ++i) {
             neighbors_to_repair.emplace_back(result_data[i].second);
         }
-        // repair_neighbors_connectivity(
-        //     inner_id, neighbors_to_repair, result, bottom_graph_, flatten_codes, neighbors_mutex_, allocator_);
+        repair_neighbors_connectivity(
+            inner_id, neighbors_to_repair, result, bottom_graph_, flatten_codes, neighbors_mutex_, allocator_);
     }
 
     if (inner_id == this->entry_point_id_) {
@@ -1609,6 +1610,7 @@ HGraph::Remove(int64_t id) {
     return true;
 }
 
+// 搜候选集，只修复候选集里面的入度和出度邻居
 // bool
 // HGraph::Remove(int64_t id) {
 //     // TODO(inbao): support thread safe remove
@@ -1701,6 +1703,149 @@ HGraph::Remove(int64_t id) {
 //         }
 //         repair_neighbors_connectivity(
 //             inner_id, neighbors_to_repair, result, bottom_graph_, flatten_codes, neighbors_mutex_, allocator_);
+//     }
+//
+//     if (inner_id == this->entry_point_id_) {
+//         bool find_new_ep = false;
+//         while (not route_graphs_.empty()) {
+//             auto& upper_graph = route_graphs_.back();
+//             Vector<InnerIdType> neighbors(allocator_);
+//             upper_graph->GetNeighbors(this->entry_point_id_, neighbors);
+//             for (const auto& nb_id : neighbors) {
+//                 if (inner_id == nb_id) {
+//                     continue;
+//                 }
+//                 this->entry_point_id_ = nb_id;
+//                 find_new_ep = true;
+//                 break;
+//             }
+//             if (find_new_ep) {
+//                 break;
+//             }
+//             route_graphs_.pop_back();
+//         }
+//     }
+//     for (auto level = static_cast<int>(route_graphs_.size()) - 1; level >= 0; --level) {
+//         this->route_graphs_[level]->DeleteNeighborsById(inner_id);
+//     }
+//     this->bottom_graph_->DeleteNeighborsById(inner_id);
+//     this->label_table_->Remove(id);
+//     this->deleted_ids_.insert(inner_id);
+//     delete_count_++;
+//
+//     return true;
+// }
+
+// 以邻居为候选集，先修出度，然后搜索找到入度节点，修入度
+// bool
+// HGraph::Remove(int64_t id) {
+//     // TODO(inbao): support thread safe remove
+//     auto inner_id = this->label_table_->GetIdByLabel(id);
+//
+//     auto start = std::chrono::high_resolution_clock::now();
+//
+//     DistHeapPtr result = nullptr;
+//     InnerSearchParam param{
+//         .topk = 1,
+//         .ep = this->entry_point_id_,
+//         .ef = 1,
+//         .is_inner_id_allowed = nullptr,
+//     };
+//
+//     auto max_level = static_cast<int>(route_graphs_.size()) - 1;
+//
+//     auto flatten_codes = basic_flatten_codes_;
+//     Vector<float> delete_point_data(dim_, 0.0F, allocator_);
+//     GetVectorByInnerId(inner_id, delete_point_data.data());
+//
+//     auto end = std::chrono::high_resolution_clock::now();
+//     std::chrono::duration<double> diff = end - start;
+//     if (inner_id == 1) {
+//         logger::info("Prepare delete point data cost: {} seconds", diff.count());
+//     }
+//
+//     start = std::chrono::high_resolution_clock::now();
+//
+//     int level = -1;
+//     for (int j = max_level; j >= 0; --j) {
+//         if (route_graphs_[j]->GetNeighborSize(inner_id) != 0) {
+//             level = j;
+//             break;
+//         }
+//         result = search_one_graph(delete_point_data.data(), route_graphs_[j], flatten_codes, param);
+//         param.ep = result->Top().second;
+//     }
+//
+//     end = std::chrono::high_resolution_clock::now();
+//     diff = end - start;
+//     if (inner_id == 1) {
+//         logger::info("Routing search cost: {} seconds", diff.count());
+//     }
+//
+//     start = std::chrono::high_resolution_clock::now();
+//
+//     param.ef = this->ef_construct_;
+//     param.topk = static_cast<int64_t>(ef_construct_);
+//     if (level != -1) {
+//         for (int l = level; l >= 0 ; --l) {
+//             if (route_graphs_[l]->TotalCount() == 0) {
+//                 continue;
+//             }
+//             Vector<InnerIdType> neighbors(allocator_);
+//             route_graphs_[l]->GetNeighbors(inner_id, neighbors);
+//
+//             for (auto &&nb_id : neighbors) {
+//                 repair_neighbor_connectivity(inner_id, nb_id, neighbors, route_graphs_[l], flatten_codes, neighbors_mutex_, allocator_);
+//             }
+//
+//             result = search_one_graph(delete_point_data.data(), route_graphs_[l], flatten_codes, param);
+//             auto result_data = result->GetData();
+//             for (int64_t i = 0; i < result->Size(); ++i) {
+//                 Vector<InnerIdType> tmp_neighbors(allocator_);
+//                 route_graphs_[l]->GetNeighbors(result_data[i].second, tmp_neighbors);
+//                 for (auto &&nb_id : tmp_neighbors) {
+//                     if (nb_id == inner_id) {
+//                         repair_neighbor_connectivity(inner_id, result_data[i].second, neighbors, route_graphs_[l], flatten_codes, neighbors_mutex_, allocator_);
+//                         break;
+//                     }
+//                 }
+//             }
+//         }
+//     }
+//
+//     end = std::chrono::high_resolution_clock::now();
+//     diff = end - start;
+//     if (inner_id == 1) {
+//         logger::info("Repair routing neighbors cost: {} seconds", diff.count());
+//     }
+//
+//     start = std::chrono::high_resolution_clock::now();
+//     if (bottom_graph_->TotalCount() != 0) {
+//         Vector<InnerIdType> neighbors(allocator_);
+//         bottom_graph_->GetNeighbors(inner_id, neighbors);
+//
+//         for (auto &&nb_id : neighbors) {
+//             repair_neighbor_connectivity(inner_id, nb_id, neighbors, bottom_graph_, flatten_codes, neighbors_mutex_, allocator_);
+//         }
+//
+//         result = search_one_graph(delete_point_data.data(), bottom_graph_, flatten_codes, param);
+//         auto result_data = result->GetData();
+//         for (int64_t i = 0; i < result->Size(); ++i) {
+//             Vector<InnerIdType> tmp_neighbors(allocator_);
+//             bottom_graph_->GetNeighbors(result_data[i].second, tmp_neighbors);
+//             for (auto &&nb_id : tmp_neighbors) {
+//                 if (nb_id == inner_id) {
+//                     repair_neighbor_connectivity(inner_id, result_data[i].second, neighbors, bottom_graph_, flatten_codes, neighbors_mutex_, allocator_);
+//                     break;
+//                 }
+//             }
+//         }
+//     }
+//
+//     end = std::chrono::high_resolution_clock::now();
+//     diff = end - start;
+//     if (inner_id == 1) {
+//         logger::info("Repair bottom neighbors cost: {} seconds", diff.count());
 //     }
 //
 //     if (inner_id == this->entry_point_id_) {

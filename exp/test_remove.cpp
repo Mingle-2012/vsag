@@ -65,7 +65,7 @@ void test_remove(const std::string& index_type,
         ->NumElements(num_queries)
         ->Float32Vectors(query_vectors.data())
         ->Owner(false);
-    test_search_performance(dataset_build, index, search_param, query_dataset, gt_files[0], {15});
+    test_search_performance(dataset_build, index, search_param, query_dataset, gt_files[0], {20, 50, 80});
 
     size_t step = std::max<size_t>(1, num_vectors / 100);
     logger::info("Sliding step is set to 1% of total data, which is {} vectors", step);
@@ -113,7 +113,10 @@ void test_remove(const std::string& index_type,
             ->Float32Vectors(vectors.data() + (offset + insert_num) * dim)
             ->Owner(false);
 
-        test_search_performance(dataset_now, index, search_param, query_dataset, gt_files[gt_idx], {15});
+        // FIXME : 搜索应该采用ID，而不是distance，用distance太作弊了
+        // test_search_performance(dataset_now, index, search_param, query_dataset, gt_files[gt_idx], {15});
+        // test_search_performance_with_ids(dataset_now, index, search_param, query_dataset, {15});
+        test_search_performance_with_offset(dataset_now, offset + insert_num, index, search_param, query_dataset, gt_files[gt_idx], {20, 50, 80});
     }
 
     engine.Shutdown();

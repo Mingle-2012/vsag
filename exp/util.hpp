@@ -150,7 +150,7 @@ test_search_performance(const DatasetPtr& dataset,
             vec_dists.reserve(k + 1);
 
             for (InnerIdType j = 0; j < dataset->GetNumElements(); ++j) {
-                float dist = vsag::L2Sqr(query->GetFloat32Vectors() + i * dim,
+                float dist = distance_func(query->GetFloat32Vectors() + i * dim,
                                          dataset->GetFloat32Vectors() + j * dim,
                                          &dim);
                 vec_dists.emplace_back(dist);
@@ -163,6 +163,13 @@ test_search_performance(const DatasetPtr& dataset,
             }
             std::sort_heap(vec_dists.begin(), vec_dists.end());
             memcpy(gt_distances.get() + i * k, vec_dists.data(), sizeof(float) * k);
+
+            if (i == 0) {
+                logger::info("Ground truth distances for first query:");
+                for (int j = 0; j < k; ++j) {
+                    logger::info("Distance[{}]: {}", j, std::sqrt(vec_dists[j]));
+                }
+            }
         }
         logger::info("Compute ground truth by brute-force, num_gt = {}, gt_dim = {}", num_gt, gt_dim);
     }else{
@@ -177,6 +184,12 @@ test_search_performance(const DatasetPtr& dataset,
         for (int i = 0 ; i < query->GetNumElements(); ++i) {
             for (int j = 0; j < k; ++j) {
                 gt_distances[i * k + j] = distance_func(query->GetFloat32Vectors() + i * dim, dataset->GetFloat32Vectors() + gt_vectors[i * gt_dim + j] * dim, &dim);
+            }
+            if (i == 0) {
+                logger::info("Ground truth distances for first query:");
+                for (int j = 0; j < k; ++j) {
+                    logger::info("Distance[{}]: {}", j, gt_distances[i * k + j]);
+                }
             }
         }
         logger::info("Load ground truth from file {}, num_gt = {}, gt_dim = {}", gt, num_gt, gt_dim);
@@ -201,7 +214,131 @@ test_search_performance(const DatasetPtr& dataset,
 
                 auto distances = std::shared_ptr<float[]>(new float[k]);
                 for (int j = 0; j < k; ++j) {
+                    if (x == 0 && i == 0) {
+                        logger::info("Id: {}, Distance: {}", qr.value()->GetIds()[j],
+                                     distance_func(query->GetFloat32Vectors() + i * dim,
+                                                   dataset->GetFloat32Vectors() + qr.value()->GetIds()[j] * dim,
+                                                   &dim));
+                    }
                     distances[j] = distance_func(query->GetFloat32Vectors() + i * dim, dataset->GetFloat32Vectors() + qr.value()->GetIds()[j] * dim, &dim);
+                }
+                auto val = get_recall(distances.get(), gt_distances.get() + i * k, k, k);
+                correct += val;
+            }
+            recall = std::max(recall, correct / static_cast<float>(num_queries));
+            qps = std::max(qps, static_cast<float>(num_queries) / static_cast<float>(time_cost_strong));
+        }
+        logger::info("L = {}, Recall = {}, QPS = {}", L, recall, qps);
+    }
+}
+
+inline void
+test_search_performance_with_offset(const DatasetPtr& dataset,
+                        const InnerIdType offset,
+                        const IndexPtr& index,
+                        const std::string &search_param_json,
+                        const DatasetPtr& query,
+                        const std::string &gt = "",
+                        const std::vector<int>& search_L = {20, 30, 40, 50, 60, 70, 80, 90, 100, 150, 200, 300, 400, 500, 600, 700, 800},
+                        int k = 10,
+                        int round = 3) {
+    logger::info("Start testing search performance");
+    auto dim = dataset->GetDim();
+    auto query_dim = query->GetDim();
+    if (dim != query_dim) {
+        logger::error("dim of dataset({}) not equal to dim of query({})", dim, query_dim);
+        return;
+    }
+
+    auto num_queries = query->GetNumElements();
+    int64_t gt_dim = 0, num_gt = 0;
+    std::shared_ptr<float[]> gt_distances;
+    auto distance_func = [](const void* query1, const void* query2, const void* qty_ptr) -> float {
+        return std::sqrt(vsag::L2Sqr(query1, query2, qty_ptr));
+    };
+    if (gt.empty()){
+        logger::warn("gt file is empty, compute the ground truth by brute-force");
+        num_gt = num_queries;
+        gt_dim = k;
+        gt_distances = std::shared_ptr<float[]>(new float[num_gt * gt_dim]);
+
+#pragma omp parallel for schedule(dynamic)
+        for (int i = 0 ; i < num_queries; ++i) {
+            std::vector<float> vec_dists;
+            vec_dists.reserve(k + 1);
+
+            for (InnerIdType j = 0; j < dataset->GetNumElements(); ++j) {
+                float dist = distance_func(query->GetFloat32Vectors() + i * dim,
+                                         dataset->GetFloat32Vectors() + j * dim,
+                                         &dim);
+                vec_dists.emplace_back(dist);
+                std::push_heap(vec_dists.begin(), vec_dists.end());
+
+                if (vec_dists.size() > static_cast<size_t>(k)) {
+                    std::pop_heap(vec_dists.begin(), vec_dists.end());
+                    vec_dists.pop_back();
+                }
+            }
+            std::sort_heap(vec_dists.begin(), vec_dists.end());
+            memcpy(gt_distances.get() + i * k, vec_dists.data(), sizeof(float) * k);
+
+            if (i == 0) {
+                logger::info("Ground truth distances for first query:");
+                for (int j = 0; j < k; ++j) {
+                    logger::info("Distance[{}]: {}", j, vec_dists[j]);
+                }
+            }
+        }
+        logger::info("Compute ground truth by brute-force, num_gt = {}, gt_dim = {}", num_gt, gt_dim);
+    }else{
+        std::vector<int> gt_vectors;
+        std::tie(gt_vectors, gt_dim, num_gt) = read_vecs<int>(gt);
+        if (num_queries != num_gt) {
+            logger::error("num_queries({}) not equal to num_gt({})", num_queries, num_gt);
+            return;
+        }
+
+        gt_distances = std::shared_ptr<float[]>(new float[num_gt * k]);
+        for (int i = 0 ; i < query->GetNumElements(); ++i) {
+            for (int j = 0; j < k; ++j) {
+                gt_distances[i * k + j] = distance_func(query->GetFloat32Vectors() + i * dim, dataset->GetFloat32Vectors() + gt_vectors[i * gt_dim + j] * dim, &dim);
+            }
+            if (i == 0) {
+                logger::info("Ground truth distances for first query:");
+                for (int j = 0; j < k; ++j) {
+                    logger::info("Distance[{}]: {}", j, gt_distances[i * k + j]);
+                }
+            }
+        }
+        logger::info("Load ground truth from file {}, num_gt = {}, gt_dim = {}", gt, num_gt, gt_dim);
+    }
+
+    for (auto L : search_L) {
+        auto search_param = fmt::format(search_param_json, L, false);
+        float qps = 0.0f, recall = 0.0f;
+        for (int x = 0 ; x < round; ++x) {
+            double time_cost_strong = 0.0;
+            float correct = 0;
+            for (int i = 0; i < query->GetNumElements(); ++i) {
+                auto q = Dataset::Make();
+                q->Dim(dim)
+                    ->Float32Vectors(query->GetFloat32Vectors() + i * dim)
+                    ->NumElements(1)
+                    ->Owner(false);
+                auto st = std::chrono::high_resolution_clock::now();
+                auto qr = index->KnnSearch(q, k, search_param);
+                auto ed = std::chrono::high_resolution_clock::now();
+                time_cost_strong += std::chrono::duration<double>(ed - st).count();
+
+                auto distances = std::shared_ptr<float[]>(new float[k]);
+                for (int j = 0; j < k; ++j) {
+                    if (x == 0 && i == 0) {
+                        logger::info("Id: {}, Distance: {}", qr.value()->GetIds()[j],
+                                     distance_func(query->GetFloat32Vectors() + i * dim,
+                                                   dataset->GetFloat32Vectors() + (qr.value()->GetIds()[j] - offset) * dim,
+                                                   &dim));
+                    }
+                    distances[j] = distance_func(query->GetFloat32Vectors() + i * dim, dataset->GetFloat32Vectors() + (qr.value()->GetIds()[j] - offset) * dim, &dim);
                 }
                 auto val = get_recall(distances.get(), gt_distances.get() + i * k, k, k);
                 correct += val;
